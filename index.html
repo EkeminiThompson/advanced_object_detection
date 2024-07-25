@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Real-Time Object Detection</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <h1>Interactive Real-Time Object Detection</h1>
+    <div id="inputSelection">
+        <label><input type="radio" name="inputType" value="webcam" checked> Webcam</label>
+        <label><input type="radio" name="inputType" value="image"> Image</label>
+        <label><input type="radio" name="inputType" value="video"> Video</label>
+    </div>
+    
+    <div id="videoContainer">
+        <video id="videoElement" autoplay playsinline></video>
+        <div id="infoBox" class="infoBox">
+            <p><strong>Detected Object:</strong> <span id="objectLabel"></span></p>
+            <p><strong>Confidence:</strong> <span id="confidenceScore"></span></p>
+        </div>
+    </div>
+
+    <input type="file" id="imageInput" accept="image/*" style="display:none;">
+    <input type="file" id="videoInput" accept="video/*" style="display:none;">
+
+    <img id="imageDisplay">
+    <video id="videoDisplay" controls loop></video>
+
+    <canvas id="outputCanvas"></canvas>
+
+    <div id="controls">
+        <button id="startButton">Start Detection</button>
+        <button id="stopButton" disabled>Stop Detection</button>
+        <button id="captureButton" disabled>Capture Screenshot</button>
+    </div>
+
+    <div id="loadingIndicator">Loading...</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@latest"></script>
+    <script src="script.js"></script>
+</body>
+</html>
