@@ -1,4 +1,5 @@
 let model, isDetecting = false;
+
 const videoElement = document.getElementById('videoElement');
 const outputCanvas = document.getElementById('outputCanvas');
 const infoBox = document.getElementById('infoBox');
@@ -12,26 +13,37 @@ const videoDisplay = document.getElementById('videoDisplay');
 const startButton = document.getElementById('startButton');
 const stopButton = document.getElementById('stopButton');
 const captureButton = document.getElementById('captureButton');
-const loadingIndicator = document.getElementById('loadingIndicator');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingMessage = document.getElementById('loadingMessage');
+
+function showOverlay(message = 'Loading...') {
+    loadingMessage.textContent = message;
+    loadingOverlay.style.display = 'flex';
+}
+
+function hideOverlay() {
+    loadingOverlay.style.display = 'none';
+}
 
 async function loadModel() {
+    showOverlay('Loading object detection model...');
     try {
         model = await cocoSsd.load();
         console.log('Model loaded successfully.');
     } catch (error) {
         console.error('Error loading model:', error);
         alert('Error loading model. Please try again.');
+    } finally {
+        hideOverlay();
     }
 }
 
 async function startDetection() {
-    showLoading(true);
+    showOverlay('Preparing input...');
     try {
-        if (!model) {
-            await loadModel();
-        }
-        showLoading(false);
+        if (!model) await loadModel();
         inputSelection.style.display = 'none';
+
         const inputType = document.querySelector('input[name="inputType"]:checked').value;
 
         if (inputType === 'webcam') {
@@ -42,9 +54,9 @@ async function startDetection() {
             videoInput.click();
         }
     } catch (error) {
-        showLoading(false);
-        alert('Error starting detection. Please try again.');
-        console.error('Error in startDetection:', error);
+        hideOverlay();
+        alert('Error starting detection.');
+        console.error(error);
     }
 }
 
@@ -67,8 +79,8 @@ function stopDetection() {
 }
 
 async function startWebcamDetection() {
+    showOverlay('Accessing webcam...');
     videoElement.style.display = 'block';
-    isDetecting = true;
     startButton.disabled = true;
     stopButton.disabled = false;
     captureButton.disabled = false;
@@ -78,12 +90,15 @@ async function startWebcamDetection() {
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
             videoElement.play();
+            isDetecting = true;
+            hideOverlay();
             detectObjects(videoElement);
         };
     } catch (error) {
         stopDetection();
-        alert('Error accessing webcam. Please check your camera settings.');
-        console.error('Webcam Error:', error);
+        hideOverlay();
+        alert('Error accessing webcam.');
+        console.error(error);
     }
 }
 
@@ -104,7 +119,11 @@ function displayImage(mediaUrl) {
     imageDisplay.style.display = 'block';
     videoElement.style.display = 'none';
     videoDisplay.style.display = 'none';
-    imageDisplay.onload = () => detectImageObjects(imageDisplay);
+    imageDisplay.onload = () => {
+        isDetecting = true;
+        hideOverlay();
+        detectObjects(imageDisplay);
+    };
 }
 
 function displayVideo(mediaUrl) {
@@ -114,84 +133,57 @@ function displayVideo(mediaUrl) {
     imageDisplay.style.display = 'none';
     videoDisplay.onloadedmetadata = () => {
         videoDisplay.play();
-        detectVideoObjects(videoDisplay);
+        isDetecting = true;
+        hideOverlay();
+        detectObjects(videoDisplay);
     };
 }
 
 async function detectObjects(inputElement) {
     if (!isDetecting) return;
 
-    const [canvas, ctx] = createCanvasFromElement(inputElement);
-    const inputTensor = tf.browser.fromPixels(canvas);
+    const outputCtx = outputCanvas.getContext('2d');
+    const width = inputElement.videoWidth || inputElement.width;
+    const height = inputElement.videoHeight || inputElement.height;
+
+    if (!width || !height) {
+        requestAnimationFrame(() => detectObjects(inputElement));
+        return;
+    }
+
+    outputCanvas.width = width;
+    outputCanvas.height = height;
+
+    outputCtx.drawImage(inputElement, 0, 0, width, height);
+    const inputTensor = tf.browser.fromPixels(outputCanvas);
     const predictions = await model.detect(inputTensor);
 
-    drawBoundingBoxes(ctx, predictions);
-    updateOutputCanvas(canvas);
+    drawBoundingBoxes(outputCtx, predictions);
     updateDetectionInfo(predictions);
 
-    if (isDetecting) {
+    outputCanvas.style.display = 'block';
+
+    if (inputElement.tagName === 'VIDEO' && !inputElement.paused && !inputElement.ended) {
         requestAnimationFrame(() => detectObjects(inputElement));
     }
 }
 
-async function detectImageObjects(image) {
-    const [canvas, ctx] = createCanvasFromElement(image);
-    const inputTensor = tf.browser.fromPixels(canvas);
-    const predictions = await model.detect(inputTensor);
-
-    drawBoundingBoxes(ctx, predictions);
-    updateOutputCanvas(canvas);
-    updateDetectionInfo(predictions);
-}
-
-async function detectVideoObjects(video) {
-    if (!isDetecting) return;
-
-    const [canvas, ctx] = createCanvasFromElement(video);
-    const inputTensor = tf.browser.fromPixels(canvas);
-    const predictions = await model.detect(inputTensor);
-
-    drawBoundingBoxes(ctx, predictions);
-    updateOutputCanvas(canvas);
-    updateDetectionInfo(predictions);
-
-    if (isDetecting) {
-        requestAnimationFrame(() => detectVideoObjects(video));
-    }
-}
-
-function createCanvasFromElement(element) {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    canvas.width = element.videoWidth || element.width;
-    canvas.height = element.videoHeight || element.height;
-    ctx.drawImage(element, 0, 0, canvas.width, canvas.height);
-    return [canvas, ctx];
-}
-
 function drawBoundingBoxes(ctx, predictions) {
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     predictions.forEach(prediction => {
+        const [x, y, width, height] = prediction.bbox;
         ctx.beginPath();
-        ctx.rect(...prediction.bbox);
+        ctx.rect(x, y, width, height);
         ctx.lineWidth = 2;
         ctx.strokeStyle = 'red';
-        ctx.fillStyle = 'red';
         ctx.stroke();
+        ctx.font = '16px Arial';
+        ctx.fillStyle = 'red';
         ctx.fillText(
             `${prediction.class} (${(prediction.score * 100).toFixed(1)}%)`,
-            prediction.bbox[0],
-            prediction.bbox[1] > 10 ? prediction.bbox[1] - 5 : 10
+            x,
+            y > 10 ? y - 5 : 10
         );
     });
-}
-
-function updateOutputCanvas(canvas) {
-    const outputCtx = outputCanvas.getContext('2d');
-    outputCanvas.width = canvas.width;
-    outputCanvas.height = canvas.height;
-    outputCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height);
-    outputCanvas.style.display = 'block';
 }
 
 function updateDetectionInfo(predictions) {
@@ -216,18 +208,13 @@ function captureScreenshot() {
     }
 }
 
-function showLoading(show) {
-    loadingIndicator.style.display = show ? 'block' : 'none';
-}
-
-document.getElementById('startButton').addEventListener('click', startDetection);
-document.getElementById('stopButton').addEventListener('click', stopDetection);
-document.getElementById('captureButton').addEventListener('click', captureScreenshot);
+startButton.addEventListener('click', startDetection);
+stopButton.addEventListener('click', stopDetection);
+captureButton.addEventListener('click', captureScreenshot);
 imageInput.addEventListener('change', (event) => handleFileInput(event, 'image'));
 videoInput.addEventListener('change', (event) => handleFileInput(event, 'video'));
 document.addEventListener('DOMContentLoaded', loadModel);
 
-// Handle input selection visibility
 document.querySelectorAll('input[name="inputType"]').forEach((input) => {
     input.addEventListener('change', () => {
         imageInput.style.display = 'none';
